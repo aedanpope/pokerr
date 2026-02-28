@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pokerr</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="load-screen">Loading range data…</div>
+
+<div id="app" style="display:none; flex-direction:column; height:100vh;">
+  <header>
+    <span id="page-title"></span>
+    <nav class="view-nav">
+      <button data-view="tree" class="active">Range Tree</button>
+      <button data-view="builder">Hand Builder</button>
+    </nav>
+  </header>
+
+  <div id="tree-view" class="view active">
+    <div id="tree-panel"></div>
+    <div id="content-panel">
+      <p class="placeholder">Select a category or tab from the tree.</p>
+    </div>
+  </div>
+
+  <div id="builder-view" class="view"></div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
