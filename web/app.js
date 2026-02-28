@@ -407,53 +407,100 @@ const SEAT_POS = {
 };
 
 function buildQuizScenarios() {
-  const facingNode = getTopLevel('Facing RFI');
-  if (!facingNode) return [];
   const scenarios = [];
-  (facingNode.children || []).forEach(subcat => {
-    (subcat.children || []).forEach(tab => {
-      if (tab.type !== 'tab') return;
-      let heroPos, raiserPos;
-      if (subcat.name === 'EP/MP') {
-        const parts = tab.name.split(/\s+vs\s+/i);
-        if (parts.length < 2) return;
-        heroPos = parts[0].trim();
-        raiserPos = parts[1].trim();
-      } else {
-        const match = tab.name.match(/vs\s+(.+)/i);
-        if (!match) return;
-        heroPos = subcat.name;
-        raiserPos = match[1].trim();
-      }
-      // Expand combined positions like "UTG/+1" → ["UTG", "+1"]
-      const heroPoses  = heroPos.split('/').map(p => p.trim());
-      const raiserPoses = raiserPos.split('/').map(p => p.trim());
-      heroPoses.forEach(hp => {
-        raiserPoses.forEach(rp => {
-          if (hp === rp) return; // skip degenerate same-seat combo
-          if (!SEAT_POS[hp] || !SEAT_POS[rp]) return;
-          scenarios.push({ tab, heroPos: hp, raiserPos: rp });
+
+  // RFI scenarios — hero decides to open or fold
+  const rfiNode = getTopLevel('RFI');
+  if (rfiNode) {
+    (rfiNode.children || []).forEach(cat => {
+      (cat.children || []).forEach(tab => {
+        if (tab.type !== 'tab') return;
+        const heroPos = cat.name;
+        if (!SEAT_POS[heroPos]) return;
+        scenarios.push({ tab, heroPos, raiserPos: null, type: 'rfi' });
+      });
+    });
+  }
+
+  // Facing-RFI scenarios — hero decides to 3-bet, call, or fold
+  const facingNode = getTopLevel('Facing RFI');
+  if (facingNode) {
+    (facingNode.children || []).forEach(subcat => {
+      (subcat.children || []).forEach(tab => {
+        if (tab.type !== 'tab') return;
+        let heroPos, raiserPos;
+        if (subcat.name === 'EP/MP') {
+          const parts = tab.name.split(/\s+vs\s+/i);
+          if (parts.length < 2) return;
+          heroPos = parts[0].trim();
+          raiserPos = parts[1].trim();
+        } else {
+          const match = tab.name.match(/vs\s+(.+)/i);
+          if (!match) return;
+          heroPos = subcat.name;
+          raiserPos = match[1].trim();
+        }
+        // Expand combined positions like "UTG/+1" → ["UTG", "+1"]
+        const heroPoses   = heroPos.split('/').map(p => p.trim());
+        const raiserPoses = raiserPos.split('/').map(p => p.trim());
+        heroPoses.forEach(hp => {
+          raiserPoses.forEach(rp => {
+            if (hp === rp) return;
+            if (!SEAT_POS[hp] || !SEAT_POS[rp]) return;
+            scenarios.push({ tab, heroPos: hp, raiserPos: rp, type: 'facing' });
+          });
         });
       });
     });
-  });
+  }
+
+  // RFI vs 3bet scenarios — hero decides to 4-bet, call, or fold
+  const vs3betNode = getTopLevel('RFI vs 3bet');
+  if (vs3betNode) {
+    (vs3betNode.children || []).forEach(cat => {
+      const heroPos = cat.name; // original raiser position
+      if (!SEAT_POS[heroPos]) return;
+      // Find the corresponding RFI opening tab so we only quiz hands hero could hold
+      const rfiCat = rfiNode && (rfiNode.children || []).find(c => c.name === heroPos);
+      const rfiTab = rfiCat && (rfiCat.children || []).find(t => t.type === 'tab');
+      (cat.children || []).forEach(tab => {
+        if (tab.type !== 'tab') return;
+        const match = tab.name.match(/vs\s+(.+)/i);
+        if (!match) return;
+        const raiserPos = match[1].trim(); // the 3-bettor
+        if (!SEAT_POS[raiserPos]) return;
+        scenarios.push({ tab, heroPos, raiserPos, type: 'vs3bet', rfiTab: rfiTab || null });
+      });
+    });
+  }
+
   return scenarios;
 }
 
-function pickHand(tab) {
+function pickHand(scenario) {
   const inRange = [];
-  (tab.ranges || []).forEach(r => inRange.push(...r.hands));
+  (scenario.tab.ranges || []).forEach(r => inRange.push(...r.hands));
+  let randomPool = ALL_HANDS;
+  if (scenario.type === 'vs3bet' && scenario.rfiTab) {
+    const rfiPool = [];
+    (scenario.rfiTab.ranges || []).forEach(r => rfiPool.push(...r.hands));
+    if (rfiPool.length > 0) randomPool = rfiPool;
+  }
   if (inRange.length > 0 && Math.random() < 0.7) {
     return inRange[Math.floor(Math.random() * inRange.length)];
   }
-  return ALL_HANDS[Math.floor(Math.random() * ALL_HANDS.length)];
+  return randomPool[Math.floor(Math.random() * randomPool.length)];
 }
 
-function correctAction(hand, tab) {
+function correctAction(hand, tab, type) {
   for (const r of (tab.ranges || [])) {
     if (!r.hands.includes(hand)) continue;
     const cls = rangeClass((DATA.rangeMeta[r.id] || { name: r.id }).name);
-    if (cls === 'action-raise-value' || cls === 'action-raise-bluff') return '3bet';
+    if (cls === 'action-raise-value' || cls === 'action-raise-bluff') {
+      if (type === 'rfi')    return 'open';
+      if (type === 'vs3bet') return '4bet';
+      return '3bet';
+    }
     if (cls === 'action-call') return 'call';
   }
   return 'fold';
@@ -475,7 +522,7 @@ function makeTableSVG(heroPos, raiserPos) {
 
   Object.entries(SEAT_POS).forEach(([pos, c]) => {
     const isHero = pos === heroPos;
-    const isRaiser = pos === raiserPos;
+    const isRaiser = raiserPos !== null && pos === raiserPos;
     const g = document.createElementNS(ns, 'g');
 
     const circle = document.createElementNS(ns, 'circle');
@@ -545,7 +592,7 @@ const quiz = { scenarios: [], score: 0, total: 0, current: null };
 function nextQuizQuestion() {
   if (!quiz.scenarios.length) return;
   const s = quiz.scenarios[Math.floor(Math.random() * quiz.scenarios.length)];
-  quiz.current = { scenario: s, hand: pickHand(s.tab), answer: null };
+  quiz.current = { scenario: s, hand: pickHand(s), answer: null };
 }
 
 function renderQuiz() {
@@ -569,7 +616,8 @@ function renderQuiz() {
 
   if (!quiz.current) nextQuizQuestion();
   const { scenario, hand, answer } = quiz.current;
-  const correct = correctAction(hand, scenario.tab);
+  const { type } = scenario;
+  const correct = correctAction(hand, scenario.tab, type);
 
   const wrap = document.createElement('div');
   wrap.className = 'quiz-wrap';
@@ -578,7 +626,11 @@ function renderQuiz() {
 
   const sit = document.createElement('div');
   sit.className = 'quiz-situation';
-  sit.textContent = `${scenario.raiserPos} opens. You are in ${scenario.heroPos}.`;
+  sit.textContent = type === 'rfi'
+    ? `You are in ${scenario.heroPos}. Open or fold?`
+    : type === 'vs3bet'
+    ? `You opened from ${scenario.heroPos}. ${scenario.raiserPos} 3-bets.`
+    : `${scenario.raiserPos} opens. You are in ${scenario.heroPos}.`;
   wrap.appendChild(sit);
 
   wrap.appendChild(makeHandDisplay(hand));
@@ -586,7 +638,12 @@ function renderQuiz() {
   if (!answer) {
     const btns = document.createElement('div');
     btns.className = 'quiz-action-btns';
-    [['3bet','3-Bet','btn-3bet'], ['call','Call','btn-call'], ['fold','Fold','btn-fold']].forEach(([a, label, cls]) => {
+    const btnDefs = type === 'rfi'
+      ? [['open','Open','btn-3bet'], ['fold','Fold','btn-fold']]
+      : type === 'vs3bet'
+      ? [['4bet','4-Bet','btn-3bet'], ['call','Call','btn-call'], ['fold','Fold','btn-fold']]
+      : [['3bet','3-Bet','btn-3bet'], ['call','Call','btn-call'], ['fold','Fold','btn-fold']];
+    btnDefs.forEach(([a, label, cls]) => {
       const btn = document.createElement('button');
       btn.className = `quiz-btn ${cls}`;
       btn.textContent = label;
@@ -613,7 +670,11 @@ function renderQuiz() {
     rev.className = 'quiz-reveal';
     const revTitle = document.createElement('div');
     revTitle.className = 'quiz-reveal-title';
-    revTitle.textContent = `${scenario.heroPos} vs ${scenario.raiserPos} — full range:`;
+    revTitle.textContent = type === 'rfi'
+      ? `${scenario.heroPos} — opening range:`
+      : type === 'vs3bet'
+      ? `${scenario.heroPos} vs ${scenario.raiserPos} 3-bet — full range:`
+      : `${scenario.heroPos} vs ${scenario.raiserPos} — full range:`;
     rev.appendChild(revTitle);
     rev.appendChild(makeHighlightGrid(scenario.tab, hand));
     wrap.appendChild(rev);
@@ -624,7 +685,8 @@ function renderQuiz() {
 
 function handleQuizAnswer(chosen) {
   if (!quiz.current || quiz.current.answer) return;
-  const correct = correctAction(quiz.current.hand, quiz.current.scenario.tab);
+  const { hand, scenario } = quiz.current;
+  const correct = correctAction(hand, scenario.tab, scenario.type);
   quiz.current.answer = chosen;
   quiz.total++;
   if (chosen === correct) quiz.score++;
