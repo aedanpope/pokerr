@@ -405,6 +405,9 @@ const SEAT_POS = {
   'SB':  { x: 37,  y: 82  },
   'BB':  { x: 64,  y: 132 },
 };
+// Clockwise order starting at bottom-centre; SEAT_COORDS[k] matches SEAT_ORDER[k]
+const SEAT_ORDER  = ['BTN','CO','HJ','LJ','+2','+1','UTG','SB','BB'];
+const SEAT_COORDS = SEAT_ORDER.map(p => SEAT_POS[p]);
 
 function buildQuizScenarios() {
   const scenarios = [];
@@ -520,8 +523,12 @@ function makeTableSVG(heroPos, raiserPos) {
   felt.setAttribute('stroke-width', '5');
   svg.appendChild(felt);
 
-  Object.entries(SEAT_POS).forEach(([pos, c]) => {
-    const isHero = pos === heroPos;
+  // Rotate seats so hero always appears at the bottom-centre coordinate slot
+  const heroIdx = SEAT_ORDER.indexOf(heroPos);
+  SEAT_ORDER.forEach((_, k) => {
+    const pos = SEAT_ORDER[(heroIdx + k) % SEAT_ORDER.length];
+    const c   = SEAT_COORDS[k];
+    const isHero   = pos === heroPos;
     const isRaiser = raiserPos !== null && pos === raiserPos;
     const g = document.createElementNS(ns, 'g');
 
