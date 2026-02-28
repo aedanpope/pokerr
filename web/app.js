@@ -425,10 +425,16 @@ function buildQuizScenarios() {
         heroPos = subcat.name;
         raiserPos = match[1].trim();
       }
-      // Skip combined positions like "UTG/+1"
-      if (heroPos.includes('/') || raiserPos.includes('/')) return;
-      if (!SEAT_POS[heroPos] || !SEAT_POS[raiserPos]) return;
-      scenarios.push({ tab, heroPos, raiserPos });
+      // Expand combined positions like "UTG/+1" → ["UTG", "+1"]
+      const heroPoses  = heroPos.split('/').map(p => p.trim());
+      const raiserPoses = raiserPos.split('/').map(p => p.trim());
+      heroPoses.forEach(hp => {
+        raiserPoses.forEach(rp => {
+          if (hp === rp) return; // skip degenerate same-seat combo
+          if (!SEAT_POS[hp] || !SEAT_POS[rp]) return;
+          scenarios.push({ tab, heroPos: hp, raiserPos: rp });
+        });
+      });
     });
   });
   return scenarios;
@@ -597,6 +603,12 @@ function renderQuiz() {
       : `Wrong. Correct answer: ${correct.toUpperCase()}`;
     wrap.appendChild(fb);
 
+    const nextBtn = document.createElement('button');
+    nextBtn.className = 'quiz-next-btn';
+    nextBtn.textContent = 'Next hand →';
+    nextBtn.addEventListener('click', () => { nextQuizQuestion(); renderQuiz(); });
+    wrap.appendChild(nextBtn);
+
     const rev = document.createElement('div');
     rev.className = 'quiz-reveal';
     const revTitle = document.createElement('div');
@@ -605,12 +617,6 @@ function renderQuiz() {
     rev.appendChild(revTitle);
     rev.appendChild(makeHighlightGrid(scenario.tab, hand));
     wrap.appendChild(rev);
-
-    const nextBtn = document.createElement('button');
-    nextBtn.className = 'quiz-next-btn';
-    nextBtn.textContent = 'Next hand →';
-    nextBtn.addEventListener('click', () => { nextQuizQuestion(); renderQuiz(); });
-    wrap.appendChild(nextBtn);
   }
 
   view.appendChild(wrap);

@@ -259,7 +259,7 @@ code.range-value.copied { background: #c6f0c6; border-color: #5a5; }
 .fb-correct { background: #d4edda; color: #155724; }
 .fb-wrong   { background: #f8d7da; color: #721c24; }
 
-.quiz-reveal { width: 100%; overflow-x: auto; }
+.quiz-reveal { width: 100%; overflow-x: auto; text-align: center; }
 .quiz-reveal-title { font-size: .75rem; color: #555; font-weight: 600; margin-bottom: .35rem; }
 
 .quiz-hl { box-shadow: inset 0 0 0 2px #f39c12; }
@@ -270,3 +270,6 @@ code.range-value.copied { background: #c6f0c6; border-color: #5a5; }
   font-size: .9rem; font-weight: 600; font-family: inherit;
 }
 .quiz-next-btn:hover { background: #225035; }
+@media (min-width: 768px) {
+  .quiz-score-bar, .quiz-wrap { max-width: 540px; }
+}
