@@ -106,8 +106,7 @@ function makeRangeGrid(tab) {
       const cell = document.createElement('div');
       cell.className = 'grid-cell' + (meta ? ' in-range' : '');
       cell.textContent = hand;
-      cell.title = meta ? `${hand} — ${meta.name}` : hand;
-      if (meta) cell.classList.add(rangeClass(meta.name));
+if (meta) cell.classList.add(rangeClass(meta.name));
       grid.appendChild(cell);
     });
   });
