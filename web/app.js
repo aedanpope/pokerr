@@ -403,6 +403,7 @@ function initApp(data) {
   document.querySelectorAll('.view-nav button').forEach(btn => {
     btn.addEventListener('click', () => switchView(btn.dataset.view));
   });
+  renderBuilder();
 }
 
 // ---------------------------------------------------------------------------

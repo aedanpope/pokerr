@@ -4,26 +4,22 @@ body {
   font-family: system-ui, sans-serif;
   background: #f4f4f4;
   color: #1a1a1a;
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  height: 100dvh;
-  overflow: hidden;
 }
 
 #app {
-  flex: 1;
-  min-height: 0;
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
   overflow: hidden;
+  /* display: flex; flex-direction: column; set by inline style + JS */
 }
 
 /* ---- Loading / error states ---- */
 #load-screen {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 100vh;
-  height: 100dvh;
   font-size: 1rem;
   color: #555;
 }
@@ -57,7 +53,7 @@ header {
 .view-nav button:hover:not(.active) { background: rgba(255,255,255,.22); }
 
 /* ---- Views ---- */
-.view { display: none; flex: 1; overflow: hidden; }
+.view { display: none; flex: 1; min-height: 0; overflow: hidden; }
 .view.active { display: flex; }
 
 /* ---- Tree view ---- */

@@ -15,19 +15,19 @@
   <header>
     <span id="page-title"></span>
     <nav class="view-nav">
-      <button data-view="tree" class="active">Range Tree</button>
-      <button data-view="builder">Hand Builder</button>
+      <button data-view="builder" class="active">Hand Builder</button>
+      <button data-view="tree">Range Tree</button>
     </nav>
   </header>
 
-  <div id="tree-view" class="view active">
+  <div id="builder-view" class="view active"></div>
+
+  <div id="tree-view" class="view">
     <div id="tree-panel"></div>
     <div id="content-panel">
       <p class="placeholder">Select a category or tab from the tree.</p>
     </div>
   </div>
-
-  <div id="builder-view" class="view"></div>
 </div>
 
 <script src="app.js"></script>
