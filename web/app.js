@@ -735,19 +735,30 @@ function initApp(data) {
 // Boot — fetch data from ?data= param or default
 // ---------------------------------------------------------------------------
 
-(function boot() {
-  const params = new URLSearchParams(location.search);
-  const dataUrl = params.get('data') || '../data/prod.json';
+if (typeof window !== 'undefined') {
+  (function boot() {
+    const params = new URLSearchParams(location.search);
+    const dataUrl = params.get('data') || '../data/prod.json';
 
-  fetch(dataUrl)
-    .then(r => {
-      if (!r.ok) throw new Error(`HTTP ${r.status}: ${dataUrl}`);
-      return r.json();
-    })
-    .then(initApp)
-    .catch(err => {
-      const screen = document.getElementById('load-screen');
-      screen.textContent = `Failed to load range data: ${err.message}`;
-      screen.classList.add('error');
-    });
-})();
+    fetch(dataUrl)
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}: ${dataUrl}`);
+        return r.json();
+      })
+      .then(initApp)
+      .catch(err => {
+        const screen = document.getElementById('load-screen');
+        screen.textContent = `Failed to load range data: ${err.message}`;
+        screen.classList.add('error');
+      });
+  })();
+} else if (typeof module !== 'undefined') {
+  // Node.js / test environment — export pure logic only
+  module.exports = {
+    _setData: d => { DATA = d; },
+    rangeClass,
+    buildQuizScenarios,
+    correctAction,
+    pickHand,
+  };
+}
