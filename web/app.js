@@ -377,6 +377,255 @@ function renderBuilder() {
 }
 
 // ---------------------------------------------------------------------------
+// Quiz mode
+// ---------------------------------------------------------------------------
+
+const ALL_HANDS = (() => {
+  const hands = [];
+  const r = ['A','K','Q','J','T','9','8','7','6','5','4','3','2'];
+  for (let i = 0; i < 13; i++) {
+    hands.push(r[i] + r[i]);
+    for (let j = i + 1; j < 13; j++) {
+      hands.push(r[i] + r[j] + 's');
+      hands.push(r[i] + r[j] + 'o');
+    }
+  }
+  return hands;
+})();
+
+// Position names match tab data exactly; coords are SVG units in viewBox "-5 -5 270 175"
+const SEAT_POS = {
+  'BTN': { x: 130, y: 152 },
+  'CO':  { x: 196, y: 132 },
+  'HJ':  { x: 223, y: 82  },
+  'LJ':  { x: 199, y: 30  },
+  '+2':  { x: 155, y: 12  },
+  '+1':  { x: 105, y: 12  },
+  'UTG': { x: 61,  y: 30  },
+  'SB':  { x: 37,  y: 82  },
+  'BB':  { x: 64,  y: 132 },
+};
+
+function buildQuizScenarios() {
+  const facingNode = getTopLevel('Facing RFI');
+  if (!facingNode) return [];
+  const scenarios = [];
+  (facingNode.children || []).forEach(subcat => {
+    (subcat.children || []).forEach(tab => {
+      if (tab.type !== 'tab') return;
+      let heroPos, raiserPos;
+      if (subcat.name === 'EP/MP') {
+        const parts = tab.name.split(/\s+vs\s+/i);
+        if (parts.length < 2) return;
+        heroPos = parts[0].trim();
+        raiserPos = parts[1].trim();
+      } else {
+        const match = tab.name.match(/vs\s+(.+)/i);
+        if (!match) return;
+        heroPos = subcat.name;
+        raiserPos = match[1].trim();
+      }
+      // Skip combined positions like "UTG/+1"
+      if (heroPos.includes('/') || raiserPos.includes('/')) return;
+      if (!SEAT_POS[heroPos] || !SEAT_POS[raiserPos]) return;
+      scenarios.push({ tab, heroPos, raiserPos });
+    });
+  });
+  return scenarios;
+}
+
+function pickHand(tab) {
+  const inRange = [];
+  (tab.ranges || []).forEach(r => inRange.push(...r.hands));
+  if (inRange.length > 0 && Math.random() < 0.7) {
+    return inRange[Math.floor(Math.random() * inRange.length)];
+  }
+  return ALL_HANDS[Math.floor(Math.random() * ALL_HANDS.length)];
+}
+
+function correctAction(hand, tab) {
+  for (const r of (tab.ranges || [])) {
+    if (!r.hands.includes(hand)) continue;
+    const cls = rangeClass((DATA.rangeMeta[r.id] || { name: r.id }).name);
+    if (cls === 'action-raise-value' || cls === 'action-raise-bluff') return '3bet';
+    if (cls === 'action-call') return 'call';
+  }
+  return 'fold';
+}
+
+function makeTableSVG(heroPos, raiserPos) {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', '-5 -5 270 175');
+  svg.setAttribute('class', 'quiz-table-svg');
+
+  const felt = document.createElementNS(ns, 'ellipse');
+  felt.setAttribute('cx', '130'); felt.setAttribute('cy', '82');
+  felt.setAttribute('rx', '105'); felt.setAttribute('ry', '58');
+  felt.setAttribute('fill', '#1a5c38');
+  felt.setAttribute('stroke', '#c8a96e');
+  felt.setAttribute('stroke-width', '5');
+  svg.appendChild(felt);
+
+  Object.entries(SEAT_POS).forEach(([pos, c]) => {
+    const isHero = pos === heroPos;
+    const isRaiser = pos === raiserPos;
+    const g = document.createElementNS(ns, 'g');
+
+    const circle = document.createElementNS(ns, 'circle');
+    circle.setAttribute('cx', c.x); circle.setAttribute('cy', c.y);
+    circle.setAttribute('r', '13');
+    circle.setAttribute('fill', isHero ? '#2471a3' : isRaiser ? '#c0392b' : '#e8f5ee');
+    circle.setAttribute('stroke', isHero || isRaiser ? '#fff' : '#999');
+    circle.setAttribute('stroke-width', isHero || isRaiser ? '2.5' : '1');
+    g.appendChild(circle);
+
+    const text = document.createElementNS(ns, 'text');
+    text.setAttribute('x', c.x); text.setAttribute('y', c.y + 4);
+    text.setAttribute('text-anchor', 'middle');
+    text.setAttribute('font-size', '8');
+    text.setAttribute('font-weight', isHero || isRaiser ? '700' : '400');
+    text.setAttribute('fill', isHero || isRaiser ? '#fff' : '#333');
+    text.setAttribute('font-family', 'system-ui, sans-serif');
+    text.textContent = pos;
+    g.appendChild(text);
+
+    svg.appendChild(g);
+  });
+  return svg;
+}
+
+function makeHandDisplay(hand) {
+  const div = document.createElement('div');
+  div.className = 'quiz-hand';
+  const isPair = hand.length === 2;
+  const isSuited = hand.endsWith('s');
+  const r1 = hand[0], r2 = hand[1];
+  const suits  = isPair ? ['♠','♥'] : isSuited ? ['♠','♠'] : ['♠','♥'];
+  const colors = isSuited ? ['spade','spade'] : ['spade','heart'];
+  [r1, r2].forEach((rank, idx) => {
+    const card = document.createElement('div');
+    card.className = `quiz-card quiz-card-${colors[idx]}`;
+    card.innerHTML = `<span class="qr">${rank}</span><span class="qs">${suits[idx]}</span>`;
+    div.appendChild(card);
+  });
+  return div;
+}
+
+function makeHighlightGrid(tab, highlightHand) {
+  const handMap = buildHandMap(tab);
+  const wrap = document.createElement('div');
+  wrap.className = 'range-grid-wrap';
+  const grid = document.createElement('div');
+  grid.className = 'range-grid';
+  RANKS.forEach((_, i) => {
+    RANKS.forEach((_, j) => {
+      const h = cellToHand(i, j);
+      const meta = handMap[h];
+      const cell = document.createElement('div');
+      cell.className = 'grid-cell' + (meta ? ' in-range' : '');
+      if (meta) cell.classList.add(rangeClass(meta.name));
+      if (h === highlightHand) cell.classList.add('quiz-hl');
+      cell.textContent = h;
+      grid.appendChild(cell);
+    });
+  });
+  wrap.appendChild(grid);
+  return wrap;
+}
+
+const quiz = { scenarios: [], score: 0, total: 0, current: null };
+
+function nextQuizQuestion() {
+  if (!quiz.scenarios.length) return;
+  const s = quiz.scenarios[Math.floor(Math.random() * quiz.scenarios.length)];
+  quiz.current = { scenario: s, hand: pickHand(s.tab), answer: null };
+}
+
+function renderQuiz() {
+  const view = document.getElementById('quiz-view');
+  view.innerHTML = '';
+
+  if (!quiz.scenarios.length) {
+    const p = document.createElement('p');
+    p.className = 'placeholder';
+    p.textContent = 'No quiz scenarios found in data.';
+    view.appendChild(p);
+    return;
+  }
+
+  const scoreBar = document.createElement('div');
+  scoreBar.className = 'quiz-score-bar';
+  scoreBar.textContent = quiz.total === 0
+    ? 'Answer questions to start scoring'
+    : `Score: ${quiz.score} / ${quiz.total}  (${Math.round(100 * quiz.score / quiz.total)}%)`;
+  view.appendChild(scoreBar);
+
+  if (!quiz.current) nextQuizQuestion();
+  const { scenario, hand, answer } = quiz.current;
+  const correct = correctAction(hand, scenario.tab);
+
+  const wrap = document.createElement('div');
+  wrap.className = 'quiz-wrap';
+
+  wrap.appendChild(makeTableSVG(scenario.heroPos, scenario.raiserPos));
+
+  const sit = document.createElement('div');
+  sit.className = 'quiz-situation';
+  sit.textContent = `${scenario.raiserPos} opens. You are in ${scenario.heroPos}.`;
+  wrap.appendChild(sit);
+
+  wrap.appendChild(makeHandDisplay(hand));
+
+  if (!answer) {
+    const btns = document.createElement('div');
+    btns.className = 'quiz-action-btns';
+    [['3bet','3-Bet','btn-3bet'], ['call','Call','btn-call'], ['fold','Fold','btn-fold']].forEach(([a, label, cls]) => {
+      const btn = document.createElement('button');
+      btn.className = `quiz-btn ${cls}`;
+      btn.textContent = label;
+      btn.addEventListener('click', () => handleQuizAnswer(a));
+      btns.appendChild(btn);
+    });
+    wrap.appendChild(btns);
+  } else {
+    const isRight = answer === correct;
+    const fb = document.createElement('div');
+    fb.className = 'quiz-feedback ' + (isRight ? 'fb-correct' : 'fb-wrong');
+    fb.textContent = isRight
+      ? `Correct! The answer is ${correct.toUpperCase()}.`
+      : `Wrong. Correct answer: ${correct.toUpperCase()}`;
+    wrap.appendChild(fb);
+
+    const rev = document.createElement('div');
+    rev.className = 'quiz-reveal';
+    const revTitle = document.createElement('div');
+    revTitle.className = 'quiz-reveal-title';
+    revTitle.textContent = `${scenario.heroPos} vs ${scenario.raiserPos} — full range:`;
+    rev.appendChild(revTitle);
+    rev.appendChild(makeHighlightGrid(scenario.tab, hand));
+    wrap.appendChild(rev);
+
+    const nextBtn = document.createElement('button');
+    nextBtn.className = 'quiz-next-btn';
+    nextBtn.textContent = 'Next hand →';
+    nextBtn.addEventListener('click', () => { nextQuizQuestion(); renderQuiz(); });
+    wrap.appendChild(nextBtn);
+  }
+
+  view.appendChild(wrap);
+}
+
+function handleQuizAnswer(chosen) {
+  if (!quiz.current || quiz.current.answer) return;
+  const correct = correctAction(quiz.current.hand, quiz.current.scenario.tab);
+  quiz.current.answer = chosen;
+  quiz.total++;
+  if (chosen === correct) quiz.score++;
+  renderQuiz();
+}
+
+// ---------------------------------------------------------------------------
 // View switching
 // ---------------------------------------------------------------------------
 
@@ -386,6 +635,7 @@ function switchView(name) {
   document.getElementById(name + '-view').classList.add('active');
   document.querySelector(`.view-nav button[data-view="${name}"]`).classList.add('active');
   if (name === 'builder') renderBuilder();
+  if (name === 'quiz') renderQuiz();
 }
 
 // ---------------------------------------------------------------------------
@@ -403,6 +653,7 @@ function initApp(data) {
   document.querySelectorAll('.view-nav button').forEach(btn => {
     btn.addEventListener('click', () => switchView(btn.dataset.view));
   });
+  quiz.scenarios = buildQuizScenarios();
   renderBuilder();
 }
 
