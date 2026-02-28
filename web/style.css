@@ -248,9 +248,10 @@ code.range-value.copied { background: #c6f0c6; border-color: #5a5; }
   font-family: inherit; color: #fff; transition: filter .1s;
 }
 .quiz-btn:hover { filter: brightness(1.12); }
-.btn-3bet { background: #c0392b; }
-.btn-call  { background: #1e8449; }
-.btn-fold  { background: #7f8c8d; }
+.btn-3bet       { background: #c0392b; }
+.btn-3bet-bluff { background: #2471a3; }
+.btn-call       { background: #1e8449; }
+.btn-fold       { background: #7f8c8d; }
 
 .quiz-feedback {
   font-size: .95rem; font-weight: 700;

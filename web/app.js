@@ -480,6 +480,65 @@ function buildQuizScenarios() {
   return scenarios;
 }
 
+// Returns hands from pool that are just outside the range boundary. Three mechanisms:
+//
+// 1. Category boundary: same high card, CLOSE_STEPS lower kicker (AXs, KXo, pair etc.)
+// 2. Suited-to-offsuit bridge: if r1r2s is in range and r2 is T or better, r1r2o is close
+//    (KQs in range → KQo close; but not T9s → T9o, which is a much bigger equity gap)
+// 3. Suited connector chain: extend CLOSE_STEPS beyond the weakest in-range suited
+//    connector (e.g. 98s in range → 87s, 76s close)
+function buildCloseHands(inRange, pool) {
+  const CLOSE_STEPS = 2;
+  const inRangeSet = new Set(inRange);
+  const poolSet = new Set(pool);
+  const close = new Set();
+
+  // 1. Category boundary: a pool hand is close if an in-range hand sits within CLOSE_STEPS
+  //    above it in the same category. Checking upward handles gaps correctly — e.g. if A9s
+  //    and A5s are both in range (A8s-A6s not), A8s/A7s are close to A9s and A4s/A3s close
+  //    to A5s. The old "extend below weakest" approach missed A8s/A7s in this case.
+  function stepAbove(hand, steps) {
+    if (hand.length === 2) {
+      const idx = RANKS.indexOf(hand[0]) - steps;
+      return idx >= 0 ? RANKS[idx] + RANKS[idx] : null;
+    }
+    const r1idx = RANKS.indexOf(hand[0]);
+    const r2idx = RANKS.indexOf(hand[1]) - steps;
+    return (r2idx >= 0 && r2idx > r1idx) ? RANKS[r1idx] + RANKS[r2idx] + hand[2] : null;
+  }
+  for (const hand of pool) {
+    if (inRangeSet.has(hand)) continue;
+    for (let step = 1; step <= CLOSE_STEPS; step++) {
+      const above = stepAbove(hand, step);
+      if (above && inRangeSet.has(above)) { close.add(hand); break; }
+    }
+  }
+
+  // 2. Suited-to-offsuit bridge (broadway/semi-broadway kicker: T or better, idx ≤ 4)
+  for (const hand of pool) {
+    if (hand.length !== 3 || hand[2] !== 'o' || inRangeSet.has(hand)) continue;
+    if (RANKS.indexOf(hand[1]) > 4) continue; // kicker weaker than T
+    if (inRangeSet.has(hand[0] + hand[1] + 's')) close.add(hand);
+  }
+
+  // 3. Suited connector chain: find weakest in-range connected suited hand (gap=0),
+  //    extend CLOSE_STEPS further down the connector diagonal
+  let weakestConnR1 = -1;
+  for (const hand of inRange) {
+    if (hand.length !== 3 || hand[2] !== 's') continue;
+    const r1 = RANKS.indexOf(hand[0]), r2 = RANKS.indexOf(hand[1]);
+    if (r2 - r1 === 1 && r1 > weakestConnR1) weakestConnR1 = r1;
+  }
+  for (let step = 1; step <= CLOSE_STEPS; step++) {
+    const r1 = weakestConnR1 + step, r2 = r1 + 1;
+    if (r2 >= 13) break;
+    const conn = RANKS[r1] + RANKS[r2] + 's';
+    if (!inRangeSet.has(conn) && poolSet.has(conn)) close.add(conn);
+  }
+
+  return [...close];
+}
+
 function pickHand(scenario) {
   const inRange = [];
   (scenario.tab.ranges || []).forEach(r => inRange.push(...r.hands));
@@ -489,22 +548,35 @@ function pickHand(scenario) {
     (scenario.rfiTab.ranges || []).forEach(r => rfiPool.push(...r.hands));
     if (rfiPool.length > 0) randomPool = rfiPool;
   }
-  if (inRange.length > 0 && Math.random() < 0.7) {
+  const rng = Math.random();
+  if (inRange.length > 0 && rng < 0.7) {
     return inRange[Math.floor(Math.random() * inRange.length)];
+  }
+  const closeHands = buildCloseHands(inRange, randomPool);
+  if (closeHands.length > 0 && rng < 0.9) {
+    return closeHands[Math.floor(Math.random() * closeHands.length)];
   }
   return randomPool[Math.floor(Math.random() * randomPool.length)];
 }
 
-function correctAction(hand, tab, type) {
+function correctAction(hand, tab, type, heroPos) {
+  const isSBRFI = type === 'rfi' && heroPos === 'SB';
   for (const r of (tab.ranges || [])) {
     if (!r.hands.includes(hand)) continue;
     const cls = rangeClass((DATA.rangeMeta[r.id] || { name: r.id }).name);
-    if (cls === 'action-raise-value' || cls === 'action-raise-bluff') {
+    if (cls === 'action-raise-value') {
+      if (isSBRFI)           return 'raise-value';
       if (type === 'rfi')    return 'open';
-      if (type === 'vs3bet') return '4bet';
-      return '3bet';
+      if (type === 'vs3bet') return '4bet-value';
+      return '3bet-value';
     }
-    if (cls === 'action-call') return 'call';
+    if (cls === 'action-raise-bluff') {
+      if (isSBRFI)           return 'raise-bluff';
+      if (type === 'rfi')    return 'open';
+      if (type === 'vs3bet') return '4bet-bluff';
+      return '3bet-bluff';
+    }
+    if (cls === 'action-call') return isSBRFI ? 'limp' : 'call';
   }
   return 'fold';
 }
@@ -623,8 +695,8 @@ function renderQuiz() {
 
   if (!quiz.current) nextQuizQuestion();
   const { scenario, hand, answer } = quiz.current;
-  const { type } = scenario;
-  const correct = correctAction(hand, scenario.tab, type);
+  const { type, heroPos } = scenario;
+  const correct = correctAction(hand, scenario.tab, type, heroPos);
 
   const wrap = document.createElement('div');
   wrap.className = 'quiz-wrap';
@@ -633,8 +705,10 @@ function renderQuiz() {
 
   const sit = document.createElement('div');
   sit.className = 'quiz-situation';
-  sit.textContent = type === 'rfi'
-    ? `You are in ${scenario.heroPos}. Open or fold?`
+  sit.textContent = type === 'rfi' && heroPos === 'SB'
+    ? `You are in SB. Raise, limp, or fold?`
+    : type === 'rfi'
+    ? `You are in ${heroPos}. Open or fold?`
     : type === 'vs3bet'
     ? `You opened from ${scenario.heroPos}. ${scenario.raiserPos} 3-bets.`
     : `${scenario.raiserPos} opens. You are in ${scenario.heroPos}.`;
@@ -645,11 +719,13 @@ function renderQuiz() {
   if (!answer) {
     const btns = document.createElement('div');
     btns.className = 'quiz-action-btns';
-    const btnDefs = type === 'rfi'
+    const btnDefs = type === 'rfi' && heroPos === 'SB'
+      ? [['raise-value','Raise Value','btn-3bet'], ['raise-bluff','Raise Bluff','btn-3bet-bluff'], ['limp','Limp','btn-call'], ['fold','Fold','btn-fold']]
+      : type === 'rfi'
       ? [['open','Open','btn-3bet'], ['fold','Fold','btn-fold']]
       : type === 'vs3bet'
-      ? [['4bet','4-Bet','btn-3bet'], ['call','Call','btn-call'], ['fold','Fold','btn-fold']]
-      : [['3bet','3-Bet','btn-3bet'], ['call','Call','btn-call'], ['fold','Fold','btn-fold']];
+      ? [['4bet-value','4-Bet Value','btn-3bet'], ['4bet-bluff','4-Bet Bluff','btn-3bet-bluff'], ['call','Call','btn-call'], ['fold','Fold','btn-fold']]
+      : [['3bet-value','3-Bet Value','btn-3bet'], ['3bet-bluff','3-Bet Bluff','btn-3bet-bluff'], ['call','Call','btn-call'], ['fold','Fold','btn-fold']];
     btnDefs.forEach(([a, label, cls]) => {
       const btn = document.createElement('button');
       btn.className = `quiz-btn ${cls}`;
@@ -662,9 +738,13 @@ function renderQuiz() {
     const isRight = answer === correct;
     const fb = document.createElement('div');
     fb.className = 'quiz-feedback ' + (isRight ? 'fb-correct' : 'fb-wrong');
+    const actionLabel = a => ({ 'open':'OPEN','fold':'FOLD','call':'CALL',
+      'raise-value':'RAISE VALUE','raise-bluff':'RAISE BLUFF','limp':'LIMP',
+      '3bet-value':'3-BET VALUE','3bet-bluff':'3-BET BLUFF',
+      '4bet-value':'4-BET VALUE','4bet-bluff':'4-BET BLUFF' }[a] ?? a.toUpperCase());
     fb.textContent = isRight
-      ? `Correct! The answer is ${correct.toUpperCase()}.`
-      : `Wrong. Correct answer: ${correct.toUpperCase()}`;
+      ? `Correct! The answer is ${actionLabel(correct)}.`
+      : `Wrong. Correct answer: ${actionLabel(correct)}`;
     wrap.appendChild(fb);
 
     const nextBtn = document.createElement('button');
@@ -729,7 +809,7 @@ function initApp(data) {
     btn.addEventListener('click', () => switchView(btn.dataset.view));
   });
   quiz.scenarios = buildQuizScenarios();
-  renderBuilder();
+  switchView('quiz');
 }
 
 // ---------------------------------------------------------------------------
@@ -761,5 +841,6 @@ if (typeof window !== 'undefined') {
     buildQuizScenarios,
     correctAction,
     pickHand,
+    buildCloseHands,
   };
 }

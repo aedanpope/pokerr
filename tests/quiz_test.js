@@ -1,7 +1,6 @@
 // Run: node tests/quiz_test.js
 'use strict';
 const assert = require('assert');
-const path   = require('path');
 
 // ---- minimal test runner ----
 let passed = 0, failed = 0;
@@ -13,7 +12,7 @@ function test(name, fn) {
 // ---- load app under test ----
 const app = require('../web/app.js');
 app._setData(require('../data/prod.json'));
-const { rangeClass, buildQuizScenarios, correctAction, pickHand } = app;
+const { rangeClass, buildQuizScenarios, correctAction, pickHand, buildCloseHands } = app;
 
 const SEAT_NAMES = new Set(['UTG', '+1', '+2', 'LJ', 'HJ', 'CO', 'BTN', 'SB', 'BB']);
 
@@ -77,6 +76,7 @@ test('heroPos !== raiserPos in every scenario',
 console.log('\ncorrectAction:');
 
 const rfiUtg    = scenarios.find(s => s.type === 'rfi'    && s.heroPos === 'UTG');
+const rfiSB     = scenarios.find(s => s.type === 'rfi'    && s.heroPos === 'SB');
 const facingBtn = scenarios.find(s => s.type === 'facing'  && s.heroPos === 'BTN');
 const vs3betUtg = scenarios.find(s => s.type === 'vs3bet' && s.heroPos === 'UTG');
 
@@ -84,14 +84,23 @@ test('AA → open in rfi',
   () => assert.equal(correctAction('AA', rfiUtg.tab, 'rfi'), 'open'));
 test('72o → fold in rfi (not in opening range)',
   () => assert.equal(correctAction('72o', rfiUtg.tab, 'rfi'), 'fold'));
-test('AA → 3bet in facing',
-  () => assert.equal(correctAction('AA', facingBtn.tab, 'facing'), '3bet'));
-test('AA → 4bet in vs3bet',
-  () => assert.equal(correctAction('AA', vs3betUtg.tab, 'vs3bet'), '4bet'));
+test('SB RFI: 99 → raise-value',
+  () => assert.equal(correctAction('99',  rfiSB.tab, 'rfi', 'SB'), 'raise-value'));
+test('SB RFI: 43s → raise-bluff',
+  () => assert.equal(correctAction('43s', rfiSB.tab, 'rfi', 'SB'), 'raise-bluff'));
+test('SB RFI: 22 → limp',
+  () => assert.equal(correctAction('22',  rfiSB.tab, 'rfi', 'SB'), 'limp'));
+test('SB RFI: 72o → fold',
+  () => assert.equal(correctAction('72o', rfiSB.tab, 'rfi', 'SB'), 'fold'));
+
+test('AA → 3bet-value in facing',
+  () => assert.equal(correctAction('AA', facingBtn.tab, 'facing'), '3bet-value'));
+test('AA → 4bet-value in vs3bet',
+  () => assert.equal(correctAction('AA', vs3betUtg.tab, 'vs3bet'), '4bet-value'));
 test('type=rfi gives open (not 3bet) for raise hand',
   () => assert.equal(correctAction('AA', rfiUtg.tab, 'rfi'), 'open'));
-test('type=vs3bet gives 4bet (not open/3bet) for raise hand',
-  () => assert.equal(correctAction('AA', vs3betUtg.tab, 'vs3bet'), '4bet'));
+test('type=vs3bet gives 4bet-value (not open/3bet) for raise hand',
+  () => assert.equal(correctAction('AA', vs3betUtg.tab, 'vs3bet'), '4bet-value'));
 
 // ---------------------------------------------------------------------------
 // pickHand — all results must be valid hands; vs3bet pool restricted to rfi range
@@ -126,6 +135,27 @@ test('facing: all results are valid canonical hands (50 draws)',
       assert.ok(ALL_HANDS_SET.has(h), `invalid hand: ${h}`);
     }
   });
+
+// ---------------------------------------------------------------------------
+// buildCloseHands — inspect boundary hands for specific scenarios
+// ---------------------------------------------------------------------------
+console.log('\nbuildCloseHands:');
+const ALL_HANDS = [...ALL_HANDS_SET];
+
+test('UTG RFI close hands',
+  () => assert.deepEqual(
+    buildCloseHands(rfiUtg.tab.ranges.flatMap(r => r.hands), ALL_HANDS),
+    ['AJo', 'ATo', 'A8s', 'A7s', 'A4s', 'A3s', 'K9s', 'K8s', 'Q9s', 'Q8s', 'J9s', 'J8s', 'T8s', 'T7s', '97s', '96s',
+     '55', '44', 'KQo', 'KJo', 'KTo', 'QJo', 'QTo', 'JTo', '87s', '76s']
+  ));
+
+const btnVsPlus2 = scenarios.find(s => s.type === 'facing' && s.heroPos === 'BTN' && s.raiserPos === '+2');
+test('BTN facing +2 close hands',
+  () => assert.deepEqual(
+    buildCloseHands(btnVsPlus2.tab.ranges.flatMap(r => r.hands), ALL_HANDS),
+    ['A9o', 'A8s', 'A8o', 'A7s', 'KTo', 'K9s', 'K9o', 'K8s', 'Q9s', 'Q8s', 'J8s', 'J7s', 'T8s', 'T7s', '97s', '96s',
+     '86s', '85s', '75s', '74s', '64s', '63s', '53s', '52s', 'QJo', 'QTo', 'JTo', '43s', '32s']
+  ));
 
 // ---- summary ----
 console.log(`\n${passed} passed, ${failed} failed`);
