@@ -402,11 +402,12 @@ const SEAT_POS = {
   '+2':  { x: 155, y: 12  },
   '+1':  { x: 105, y: 12  },
   'UTG': { x: 61,  y: 30  },
-  'SB':  { x: 37,  y: 82  },
-  'BB':  { x: 64,  y: 132 },
+  'SB':  { x: 64,  y: 132 },  // adjacent to BTN going clockwise (7-8 o'clock)
+  'BB':  { x: 37,  y: 82  },  // one step further clockwise (9 o'clock)
 };
-// Clockwise order starting at bottom-centre; SEAT_COORDS[k] matches SEAT_ORDER[k]
-const SEAT_ORDER  = ['BTN','CO','HJ','LJ','+2','+1','UTG','SB','BB'];
+// Counter-clockwise order from BTN; SEAT_COORDS[k] matches SEAT_ORDER[k]
+// After UTG, BB precedes SB: going CCW from UTG(-143°) reaches BB(180°) before SB(143°)
+const SEAT_ORDER  = ['BTN','CO','HJ','LJ','+2','+1','UTG','BB','SB'];
 const SEAT_COORDS = SEAT_ORDER.map(p => SEAT_POS[p]);
 
 function buildQuizScenarios() {
