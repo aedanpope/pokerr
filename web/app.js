@@ -413,15 +413,14 @@ function buildQuizScenarios() {
   const scenarios = [];
 
   // RFI scenarios — hero decides to open or fold
+  // RFI children are tabs directly (no category wrapper)
   const rfiNode = getTopLevel('RFI');
   if (rfiNode) {
-    (rfiNode.children || []).forEach(cat => {
-      (cat.children || []).forEach(tab => {
-        if (tab.type !== 'tab') return;
-        const heroPos = cat.name;
-        if (!SEAT_POS[heroPos]) return;
-        scenarios.push({ tab, heroPos, raiserPos: null, type: 'rfi' });
-      });
+    (rfiNode.children || []).forEach(tab => {
+      if (tab.type !== 'tab') return;
+      const heroPos = tab.name;
+      if (!SEAT_POS[heroPos]) return;
+      scenarios.push({ tab, heroPos, raiserPos: null, type: 'rfi' });
     });
   }
 
@@ -464,8 +463,8 @@ function buildQuizScenarios() {
       const heroPos = cat.name; // original raiser position
       if (!SEAT_POS[heroPos]) return;
       // Find the corresponding RFI opening tab so we only quiz hands hero could hold
-      const rfiCat = rfiNode && (rfiNode.children || []).find(c => c.name === heroPos);
-      const rfiTab = rfiCat && (rfiCat.children || []).find(t => t.type === 'tab');
+      // RFI children are tabs directly — find the one matching heroPos
+      const rfiTab = rfiNode && (rfiNode.children || []).find(t => t.type === 'tab' && t.name === heroPos);
       (cat.children || []).forEach(tab => {
         if (tab.type !== 'tab') return;
         const match = tab.name.match(/vs\s+(.+)/i);
